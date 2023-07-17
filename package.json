@@ -1,0 +1,34 @@
+{
+  "name": "tdl-cli",
+  "version": "1.0.0",
+  "description": "Script para dividir archivos BMCAT",
+  "bin": {
+    "tdl-cli": "./index.js"
+  },
+  "keywords": [
+    "tdl",
+    "cli",
+    "splitter",
+    "xml",
+    "bmcat",
+    "file",
+    "splitting"
+  ],
+  "author": "SergioGMR",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TodoLux/tdl-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TodoLux/tdl-cli/issues"
+  },
+  "homepage": "https://github.com/TodoLux/tdl-cli#readme",
+  "dependencies": {
+    "fs": "^0.0.1-security",
+    "path": "^0.12.7"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
