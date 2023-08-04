@@ -103,6 +103,13 @@ async function splitXMLFile(xmlFile, maxFileSize, outputFileName) {
 async function main() {
   // Obtener argumentos de la línea de comandos
   const args = process.argv.slice(2);
+
+  if (args.includes("--version")) {
+    const packageJson = require("./package.json");
+    const version = packageJson.version;
+    console.log(`Version: ${version}`);
+    return;
+  }
   if (args.length === 0 || args.includes("--help")) {
     console.log(
       `${colors.cyan}${emojis.info} Uso: node todolux-spliter.js --input=archivo.xml [--size=] [--output=]${colors.reset}`
@@ -117,6 +124,9 @@ async function main() {
     );
     console.log(
       `${colors.yellow}  --output=             ${colors.reset}(Opcional) Nombre del archivo generado. Por defecto: <inputFileName>-split.`
+    );
+    console.log(
+      `${colors.yellow}  --version             ${colors.reset}(Opcional) Versión del cli.`
     );
     process.exit(0);
   }
