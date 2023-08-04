@@ -1,107 +1,161 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require("node:fs");
+const path = require("node:path");
 
 // Colores en la consola
 const colors = {
-  reset: '\x1b[0m',
-  cyan: '\x1b[36m',
-  yellow: '\x1b[33m',
-  green: '\x1b[32m',
-  red: '\x1b[31m',
+  reset: "\x1b[0m",
+  cyan: "\x1b[36m",
+  yellow: "\x1b[33m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
 };
 
 // Emojis
 const emojis = {
-  info: 'ℹ️',
-  error: '❌',
-  success: '✅',
+  info: "ℹ️",
+  error: "❌",
+  success: "✅",
 };
 
-function splitXMLFile(xmlFile, maxFileSize, outputFileName) {
-  const xmlContent = fs.readFileSync(xmlFile, 'utf8');
-  const startIndex = xmlContent.indexOf('<T_NEW_CATALOG>');
-  const endIndex = xmlContent.indexOf('</T_NEW_CATALOG>') + '</T_NEW_CATALOG>'.length;
-  const commonTags = xmlContent.substring(0, startIndex + '<T_NEW_CATALOG>'.length);
-  const productsSection = xmlContent.substring(startIndex, endIndex);
+async function getFileSize(filePath) {
+  const stats = await fs.promises.stat(filePath);
+  return stats.size;
+}
 
-  // Buscar y dividir los productos
-  const products = productsSection.match(/<PRODUCT(?:\s+mode="new")?>(.*?)<\/PRODUCT>/gs);
-
-  const outputFiles = [];
-  let fileIndex = 1;
-  let currentFileSize = 0;
-  let currentFileContent = '';
-
+async function splitXMLFile(xmlFile, maxFileSize, outputFileName) {
   const inputFileName = path.basename(xmlFile, path.extname(xmlFile));
-  const fileNamePrefix = outputFileName ? outputFileName : `${inputFileName}-split`;
+  const fileNamePrefix = outputFileName
+    ? outputFileName
+    : `${inputFileName}-split`;
+  const outputFiles = [];
 
-  for (const product of products) {
-    const fullProduct = product.trim();
+  const readStream = fs.createReadStream(xmlFile, {
+    highWaterMark: maxFileSize,
+    encoding: "utf8",
+  });
 
-    const productSize = Buffer.byteLength(fullProduct, 'utf8');
-    if (currentFileSize + productSize > maxFileSize) {
-      const outputFile = `${fileNamePrefix}-${fileIndex}.xml`;
-      const fileContent = `${commonTags}\n${currentFileContent}</T_NEW_CATALOG>\n</BMECAT>`;
-      fs.writeFileSync(outputFile, fileContent);
-      outputFiles.push(outputFile);
-      fileIndex++;
-      currentFileSize = 0;
-      currentFileContent = '';
+  let currentFileSize = 0;
+  let fileIndex = 1;
+  let currentFileContent = ""; // Mover esta variable afuera de la función
+  let firstLine = true; // Añadir una bandera para identificar la primera línea
+
+  const writeNextFile = () => {
+    if (currentFileContent === "") {
+      return; // Evitar crear archivo vacío si no hay contenido
     }
 
-    currentFileContent += `${fullProduct}\n`;
-    currentFileSize += productSize;
-  }
-
-  if (currentFileContent !== '') {
     const outputFile = `${fileNamePrefix}-${fileIndex}.xml`;
-    const fileContent = `${commonTags}\n${currentFileContent}</T_NEW_CATALOG>\n</BMECAT>`;
-    fs.writeFileSync(outputFile, fileContent);
+    fs.writeFileSync(
+      outputFile,
+      `${currentFileContent}</T_NEW_CATALOG>\n</BMECAT>`
+    );
     outputFiles.push(outputFile);
-  }
+    currentFileContent = "";
+    fileIndex++;
+  };
+
+  readStream.on("data", (chunk) => {
+    const lines = chunk.split(/\r?\n/);
+
+    for (const line of lines) {
+      const productSize = Buffer.byteLength(line, "utf8") + 1; // Agregar 1 para considerar el salto de línea
+
+      // Si el tamaño del producto supera el tamaño máximo, escribirlo en un archivo independiente
+      if (productSize > maxFileSize) {
+        writeNextFile();
+        const outputFile = `${fileNamePrefix}-${fileIndex}.xml`;
+        fs.writeFileSync(outputFile, `${line}\n</T_NEW_CATALOG>\n</BMECAT>`);
+        outputFiles.push(outputFile);
+        fileIndex++;
+        continue;
+      }
+
+      // Si el producto es demasiado grande para el archivo actual, escribirlo en el siguiente archivo
+      if (firstLine && productSize > maxFileSize - 30) {
+        // Agregamos un margen de 30 bytes para asegurarnos de que la primera línea no exceda el tamaño máximo
+        writeNextFile();
+        firstLine = false;
+      }
+
+      if (currentFileSize + productSize > maxFileSize) {
+        writeNextFile();
+        currentFileSize = productSize;
+      }
+
+      currentFileContent += `${line}\n`;
+      currentFileSize += productSize;
+    }
+  });
+
+  readStream.on("end", () => {
+    if (currentFileContent !== "") {
+      writeNextFile();
+    }
+
+    console.log(
+      `${colors.green}${emojis.success} División completada.${colors.reset}`
+    );
+  });
 
   return outputFiles;
 }
 
-// Obtener argumentos de la línea de comandos
-const args = process.argv.slice(2);
-if (args.length === 0 || args.includes('--help')) {
-  console.log(`${colors.cyan}${emojis.info} Uso: node todolux-spliter.js --input=archivo.xml [--size=] [--output=]${colors.reset}`);
-  console.log('');
-  console.log('Parámetros:');
-  console.log(`${colors.yellow}  --input=archivo.xml   ${colors.reset}Ruta al archivo XML que se dividirá en archivos más pequeños.`);
-  console.log(`${colors.yellow}  --size=               ${colors.reset}(Opcional) Tamaño máximo de cada archivo dividido en megabytes. Por defecto: 90MB.`);
-  console.log(`${colors.yellow}  --output=             ${colors.reset}(Opcional) Nombre del archivo generado. Por defecto: <inputFileName>-split.`);
-  process.exit(0);
-}
+async function main() {
+  // Obtener argumentos de la línea de comandos
+  const args = process.argv.slice(2);
+  if (args.length === 0 || args.includes("--help")) {
+    console.log(
+      `${colors.cyan}${emojis.info} Uso: node todolux-spliter.js --input=archivo.xml [--size=] [--output=]${colors.reset}`
+    );
+    console.log("");
+    console.log("Parámetros:");
+    console.log(
+      `${colors.yellow}  --input=archivo.xml   ${colors.reset}Ruta al archivo XML que se dividirá en archivos más pequeños.`
+    );
+    console.log(
+      `${colors.yellow}  --size=               ${colors.reset}(Opcional) Tamaño máximo de cada archivo dividido en megabytes. Por defecto: 90MB.`
+    );
+    console.log(
+      `${colors.yellow}  --output=             ${colors.reset}(Opcional) Nombre del archivo generado. Por defecto: <inputFileName>-split.`
+    );
+    process.exit(0);
+  }
 
-let xmlFile = '';
-let maxFileSize = 90 * 1024 * 1024; // 90 MB (en bytes)
-let outputFileName = '';
+  let xmlFile = "";
+  let maxFileSize = 90 * 1024 * 1024; // 90 MB (en bytes)
+  let outputFileName = "";
 
-// Verificar los parámetros
-for (const arg of args) {
-  if (arg.startsWith('--input=')) {
-    xmlFile = arg.split('=')[1];
-  } else if (arg.startsWith('--size=')) {
-    const sizeInMB = parseInt(arg.split('=')[1]);
-    if (!isNaN(sizeInMB)) {
-      maxFileSize = sizeInMB * 1024 * 1024; // Convertir a bytes
+  // Verificar los parámetros
+  for (const arg of args) {
+    if (arg.startsWith("--input=")) {
+      xmlFile = arg.split("=")[1];
+    } else if (arg.startsWith("--size=")) {
+      const sizeInMB = parseInt(arg.split("=")[1]);
+      if (!isNaN(sizeInMB)) {
+        maxFileSize = sizeInMB * 1024 * 1024; // Convertir a bytes
+      }
+    } else if (arg.startsWith("--output=")) {
+      outputFileName = arg.split("=")[1];
     }
-  } else if (arg.startsWith('--output=')) {
-    outputFileName = arg.split('=')[1];
+  }
+
+  if (!xmlFile) {
+    console.error(
+      `${colors.red}${emojis.error} Error: Debes especificar el archivo de entrada usando el parámetro --input=archivo.xml${colors.reset}`
+    );
+    process.exit(1);
+  }
+
+  // Dividir el archivo XML
+  const splitFiles = await splitXMLFile(xmlFile, maxFileSize, outputFileName);
+
+  // Imprimir los archivos generados
+  console.log(
+    `${colors.green}${emojis.success} Archivos generados:${colors.reset}`
+  );
+  for (const file of splitFiles) {
+    console.log(`- ${file}`);
   }
 }
 
-if (!xmlFile) {
-  console.error(`${colors.red}${emojis.error} Error: Debes especificar el archivo de entrada usando el parámetro --input=archivo.xml${colors.reset}`);
-  process.exit(1);
-}
-
-const splitFiles = splitXMLFile(xmlFile, maxFileSize, outputFileName);
-
-// Imprimir los archivos generados
-console.log(`${colors.green}${emojis.success} Archivos generados:${colors.reset}`);
-for (const file of splitFiles) {
-  console.log(`- ${file}`);
-}
+main();
