@@ -1,6 +1,6 @@
 {
   "name": "tdl-cli",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Script para dividir archivos BMCAT",
   "bin": {
     "tdl-cli": "./index.js"
