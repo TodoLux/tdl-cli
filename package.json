@@ -5,6 +5,7 @@
   "bin": {
     "tdl-cli": "./index.js"
   },
+  "type": "module",
   "keywords": [
     "tdl",
     "cli",
