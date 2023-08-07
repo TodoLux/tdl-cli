@@ -38,47 +38,62 @@ async function splitXMLFile(xmlFile, maxFileSize, outputFileName) {
     0,
     headerEndIndex + "<T_NEW_CATALOG>".length
   );
-  const footer = "</T_NEW_CATALOG>\n</BMECAT>";
+  const footer = "\n</T_NEW_CATALOG>\n</BMECAT>";
   const productsContent = fileContent.slice(
     headerEndIndex + "<T_NEW_CATALOG>".length
   );
 
   let currentCatalog = header;
   let currentProduct = "";
-  let currentFileSize = Buffer.byteLength(header + footer, "utf8");
+  let currentFileSize = Buffer.byteLength(header, "utf8");
 
-  const writeNextFile = () => {
+  const writeNextFile = (isLastFile) => {
     if (currentProduct === "") {
       return; // Evitar crear archivo vacío si no hay contenido
     }
 
     const outputFile = `${fileNamePrefix}-${outputFiles.length + 1}.xml`;
-    const outputContent = currentCatalog + currentProduct + footer;
+    const outputContent = isLastFile
+      ? currentCatalog + currentProduct
+      : currentCatalog + currentProduct + footer;
 
     fs.writeFileSync(outputFile, outputContent);
     outputFiles.push(outputFile);
 
     currentProduct = "";
-    currentFileSize = Buffer.byteLength(header + footer, "utf8");
+    currentFileSize = Buffer.byteLength(header, "utf8");
   };
 
   const products = productsContent.split("</PRODUCT>");
 
-  for (const product of products) {
-    const productWithEndTag = product + "</PRODUCT>";
+  for (let i = 0; i < products.length - 1; i++) {
+    const productWithEndTag = products[i] + "</PRODUCT>";
     const productSize = Buffer.byteLength(productWithEndTag, "utf8");
 
-    if (currentFileSize + productSize > maxFileSize) {
-      writeNextFile();
+    if (
+      currentFileSize + productSize + Buffer.byteLength(footer, "utf8") >
+      maxFileSize
+    ) {
+      writeNextFile(false);
+      currentCatalog = header;
     }
 
     currentProduct += productWithEndTag;
     currentFileSize += productSize;
   }
 
-  if (currentProduct !== "") {
-    writeNextFile();
+  const lastProduct = products[products.length - 1];
+  const lastProductWithEndTag = lastProduct;
+  const lastProductSize = Buffer.byteLength(lastProductWithEndTag, "utf8");
+
+  if (currentFileSize + lastProductSize > maxFileSize) {
+    writeNextFile(false);
+    currentCatalog = header;
   }
+
+  currentProduct += lastProductWithEndTag;
+  currentFileSize += lastProductSize;
+  writeNextFile(true);
 
   console.log(
     `${colors.green}${emojis.success} División completada.${colors.reset}`
