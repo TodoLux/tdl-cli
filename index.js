@@ -17,11 +17,6 @@ const emojis = {
   success: "✅",
 };
 
-async function getFileSize(filePath) {
-  const stats = await fs.promises.stat(filePath);
-  return stats.size;
-}
-
 async function splitXMLFile(xmlFile, maxFileSize, outputFileName) {
   const inputFileName = path.basename(xmlFile, path.extname(xmlFile));
   const fileNamePrefix = outputFileName
@@ -29,73 +24,65 @@ async function splitXMLFile(xmlFile, maxFileSize, outputFileName) {
     : `${inputFileName}-split`;
   const outputFiles = [];
 
-  const readStream = fs.createReadStream(xmlFile, {
-    highWaterMark: maxFileSize,
-    encoding: "utf8",
-  });
+  const fileContent = fs.readFileSync(xmlFile, "utf8");
+  const headerEndIndex = fileContent.indexOf("<T_NEW_CATALOG>");
 
-  let currentFileSize = 0;
-  let fileIndex = 1;
-  let currentFileContent = ""; // Mover esta variable afuera de la función
-  let firstLine = true; // Añadir una bandera para identificar la primera línea
+  if (headerEndIndex === -1) {
+    console.error(
+      `${colors.red}${emojis.error} Error: El archivo XML no contiene la etiqueta <T_NEW_CATALOG>${colors.reset}`
+    );
+    process.exit(1);
+  }
+
+  const header = fileContent.slice(
+    0,
+    headerEndIndex + "<T_NEW_CATALOG>".length
+  );
+  const footer = "</T_NEW_CATALOG>\n</BMECAT>";
+  const productsContent = fileContent.slice(
+    headerEndIndex + "<T_NEW_CATALOG>".length
+  );
+
+  let currentCatalog = header;
+  let currentProduct = "";
+  let currentFileSize = Buffer.byteLength(header + footer, "utf8");
 
   const writeNextFile = () => {
-    if (currentFileContent === "") {
+    if (currentProduct === "") {
       return; // Evitar crear archivo vacío si no hay contenido
     }
 
-    const outputFile = `${fileNamePrefix}-${fileIndex}.xml`;
-    fs.writeFileSync(
-      outputFile,
-      `${currentFileContent}</T_NEW_CATALOG>\n</BMECAT>`
-    );
+    const outputFile = `${fileNamePrefix}-${outputFiles.length + 1}.xml`;
+    const outputContent = currentCatalog + currentProduct + footer;
+
+    fs.writeFileSync(outputFile, outputContent);
     outputFiles.push(outputFile);
-    currentFileContent = "";
-    fileIndex++;
+
+    currentProduct = "";
+    currentFileSize = Buffer.byteLength(header + footer, "utf8");
   };
 
-  readStream.on("data", (chunk) => {
-    const lines = chunk.split(/\r?\n/);
+  const products = productsContent.split("</PRODUCT>");
 
-    for (const line of lines) {
-      const productSize = Buffer.byteLength(line, "utf8") + 1; // Agregar 1 para considerar el salto de línea
+  for (const product of products) {
+    const productWithEndTag = product + "</PRODUCT>";
+    const productSize = Buffer.byteLength(productWithEndTag, "utf8");
 
-      // Si el tamaño del producto supera el tamaño máximo, escribirlo en un archivo independiente
-      if (productSize > maxFileSize) {
-        writeNextFile();
-        const outputFile = `${fileNamePrefix}-${fileIndex}.xml`;
-        fs.writeFileSync(outputFile, `${line}\n</T_NEW_CATALOG>\n</BMECAT>`);
-        outputFiles.push(outputFile);
-        fileIndex++;
-        continue;
-      }
-
-      // Si el producto es demasiado grande para el archivo actual, escribirlo en el siguiente archivo
-      if (firstLine && productSize > maxFileSize - 30) {
-        // Agregamos un margen de 30 bytes para asegurarnos de que la primera línea no exceda el tamaño máximo
-        writeNextFile();
-        firstLine = false;
-      }
-
-      if (currentFileSize + productSize > maxFileSize) {
-        writeNextFile();
-        currentFileSize = productSize;
-      }
-
-      currentFileContent += `${line}\n`;
-      currentFileSize += productSize;
-    }
-  });
-
-  readStream.on("end", () => {
-    if (currentFileContent !== "") {
+    if (currentFileSize + productSize > maxFileSize) {
       writeNextFile();
     }
 
-    console.log(
-      `${colors.green}${emojis.success} División completada.${colors.reset}`
-    );
-  });
+    currentProduct += productWithEndTag;
+    currentFileSize += productSize;
+  }
+
+  if (currentProduct !== "") {
+    writeNextFile();
+  }
+
+  console.log(
+    `${colors.green}${emojis.success} División completada.${colors.reset}`
+  );
 
   return outputFiles;
 }
@@ -112,7 +99,7 @@ async function main() {
   }
   if (args.length === 0 || args.includes("--help")) {
     console.log(
-      `${colors.cyan}${emojis.info} Uso: node todolux-spliter.js --input=archivo.xml [--size=] [--output=]${colors.reset}`
+      `${colors.cyan}${emojis.info} Uso: tdl-cli --input=archivo.xml [--size=] [--output=]${colors.reset}`
     );
     console.log("");
     console.log("Parámetros:");
